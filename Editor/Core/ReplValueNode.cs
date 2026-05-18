@@ -38,5 +38,20 @@ namespace RoslynRepl.Editor.Core
         /// broken syntax.
         /// </summary>
         public string ExpressionPath;
+
+        /// <summary>
+        /// Issue #61: the value <see cref="SimpleObjectSerializer.ToTree"/>
+        /// was rooted at when this node was built. Every descendant of
+        /// a single tree shares the same reference, so menu handlers
+        /// can ask "is `_` still the same object the visible tree was
+        /// built against?" before emitting an <see cref="ExpressionPath"/>-
+        /// based action. Path expressions start with the root token
+        /// (<c>_</c> by default, or the Watch row's expression) and
+        /// only resolve correctly while that token still points at
+        /// this same instance — a later Set as <c>_</c> against
+        /// a different tree would silently re-aim every old path
+        /// otherwise.
+        /// </summary>
+        public object RootValue;
     }
 }

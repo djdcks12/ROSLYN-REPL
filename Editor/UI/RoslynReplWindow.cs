@@ -889,13 +889,31 @@ return UnityEngine.Application.unityVersion;";
             bool hasValue = node.Value != null
                             && !(node.Value is UnityEngine.Object uo && uo == null);
 
-            evt.menu.AppendAction("Add Watch",
-                _ => AddOutputNodeWatch(node),
-                hasPath ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            // Issue #61 followup: path actions (Add Watch / Copy
+            // Path) are only safe while `_` still points at the
+            // root the visible tree was built against. If the user
+            // rebinds `_` later — through Set as `_` on another row,
+            // an Object Browser Set as `_`, the toolbar ✕, or a
+            // fresh Run — the same `_.foo.bar` path would silently
+            // resolve against a different object. We grey those
+            // entries out and label them so the user sees *why*
+            // they're disabled instead of guessing. Set as `_` on
+            // *this* row is the easy un-stick: it rebinds `_` to
+            // the tree's root, after which the menu re-evaluates
+            // fresh.
+            bool rootMatches = node.RootValue != null
+                               && ReferenceEquals(ReplEngine.LastResult, node.RootValue);
+            bool addWatchEnabled = hasPath && rootMatches;
+            bool copyPathEnabled = hasPath && rootMatches;
+            string staleSuffix = (hasPath && !rootMatches) ? " (stale — `_` rebound)" : string.Empty;
 
-            evt.menu.AppendAction("Copy Path",
+            evt.menu.AppendAction("Add Watch" + staleSuffix,
+                _ => AddOutputNodeWatch(node),
+                addWatchEnabled ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+            evt.menu.AppendAction("Copy Path" + staleSuffix,
                 _ => CopyOutputNodePath(node),
-                hasPath ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+                copyPathEnabled ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
 
             evt.menu.AppendAction("Copy Value",
                 _ => CopyOutputNodeValue(node),
@@ -909,6 +927,12 @@ return UnityEngine.Application.unityVersion;";
 
             evt.menu.AppendSeparator();
 
+            // Inspect / Set as `_` use the captured node.Value
+            // directly, so they stay correct regardless of where
+            // `_` currently points — they actually *fix* the stale
+            // state (re-rooting `_` at the tree's root for "Inspect
+            // This" against the (result) row, or at the specific
+            // node for any inner row).
             evt.menu.AppendAction("Inspect This",
                 _ => InspectOutputNode(node),
                 hasValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);

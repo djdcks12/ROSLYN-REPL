@@ -36,6 +36,14 @@ namespace RoslynRepl.Editor.Core
             public Options Options;
             public HashSet<object> Visited;
             public int NodeCount;
+            // Issue #61: the root value every ExpressionPath in the
+            // tree is rooted at. Stamped onto every node so context-
+            // menu handlers can compare against ReplEngine.LastResult
+            // and detect that the visible tree has gone stale relative
+            // to `_`. A null root is legal (ToTree(null, ...) builds
+            // a "null" leaf) — same null gets stamped on every node
+            // and the menu can treat that as "no root to anchor on".
+            public object RootValue;
         }
 
         public static ReplValueNode ToTree(object value, Options options = null, string rootPath = "_")
@@ -46,6 +54,7 @@ namespace RoslynRepl.Editor.Core
                 Options = options,
                 Visited = new HashSet<object>(ReferenceEqualityComparer.Instance),
                 NodeCount = 0,
+                RootValue = value,
             };
             // rootPath defaults to "_" because every UI-driven ToTree
             // call site assigns the value to ReplEngine.LastResult on
@@ -64,13 +73,17 @@ namespace RoslynRepl.Editor.Core
             {
                 // Placeholder — Value/ExpressionPath stay null so
                 // context menus disable Inspect / Set as `_` /
-                // Add Watch for the truncation marker.
+                // Add Watch for the truncation marker. RootValue is
+                // still stamped so any descendants (there aren't
+                // any — this is a leaf placeholder) inherit the same
+                // anchor identity as the rest of the tree.
                 return new ReplValueNode
                 {
                     Name = name,
                     TypeName = "",
                     Preview = $"(node cap reached at {state.Options.MaxTotalNodes}; subtree truncated)",
-                    IsExpandable = false
+                    IsExpandable = false,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -84,6 +97,7 @@ namespace RoslynRepl.Editor.Core
                     IsExpandable = false,
                     Value = null,
                     ExpressionPath = path,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -104,6 +118,7 @@ namespace RoslynRepl.Editor.Core
                     IsExpandable = false,
                     Value = null,
                     ExpressionPath = path,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -117,6 +132,7 @@ namespace RoslynRepl.Editor.Core
                     IsExpandable = false,
                     Value = value,
                     ExpressionPath = path,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -130,6 +146,7 @@ namespace RoslynRepl.Editor.Core
                     IsExpandable = false,
                     Value = value,
                     ExpressionPath = path,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -143,6 +160,7 @@ namespace RoslynRepl.Editor.Core
                     IsExpandable = false,
                     Value = value,
                     ExpressionPath = path,
+                    RootValue = state.RootValue,
                 };
             }
 
@@ -162,7 +180,8 @@ namespace RoslynRepl.Editor.Core
                     Preview = ValueFormatter.Format(value),
                     IsExpandable = true,
                     Value = value,
-                    ExpressionPath = path
+                    ExpressionPath = path,
+                    RootValue = state.RootValue
                 };
 
                 if (value is IDictionary dict)
@@ -209,7 +228,7 @@ namespace RoslynRepl.Editor.Core
 
                     object v;
                     try { v = f.GetValue(obj); }
-                    catch (Exception ex) { children.Add(ErrorNode(f.Name, ex)); continue; }
+                    catch (Exception ex) { children.Add(ErrorNode(f.Name, ex, state)); continue; }
 
                     // Field accessors are always safe to splice into
                     // an expression — propagate path only when the
@@ -253,9 +272,9 @@ namespace RoslynRepl.Editor.Core
                     object v;
                     try { v = p.GetValue(obj); }
                     catch (TargetInvocationException tie)
-                    { children.Add(ErrorNode(p.Name, tie.InnerException ?? tie)); continue; }
+                    { children.Add(ErrorNode(p.Name, tie.InnerException ?? tie, state)); continue; }
                     catch (Exception ex)
-                    { children.Add(ErrorNode(p.Name, ex)); continue; }
+                    { children.Add(ErrorNode(p.Name, ex, state)); continue; }
 
                     string childPath = parentPath == null
                         ? null
@@ -284,7 +303,8 @@ namespace RoslynRepl.Editor.Core
                             Name = "...",
                             TypeName = "",
                             Preview = $"(remaining items truncated at {state.Options.CollectionHeadCount})",
-                            IsExpandable = false
+                            IsExpandable = false,
+                            RootValue = state.RootValue,
                         });
                         break;
                     }
@@ -301,7 +321,7 @@ namespace RoslynRepl.Editor.Core
             }
             catch (Exception ex)
             {
-                children.Add(ErrorNode("<enumeration>", ex));
+                children.Add(ErrorNode("<enumeration>", ex, state));
             }
             return children;
         }
@@ -326,7 +346,8 @@ namespace RoslynRepl.Editor.Core
                             Preview = remaining >= 0
                                 ? $"(remaining {remaining} entries truncated)"
                                 : "(remaining entries truncated)",
-                            IsExpandable = false
+                            IsExpandable = false,
+                            RootValue = state.RootValue,
                         });
                         break;
                     }
@@ -349,79 +370,67 @@ namespace RoslynRepl.Editor.Core
             }
             catch (Exception ex)
             {
-                children.Add(ErrorNode("<enumeration>", ex));
+                children.Add(ErrorNode("<enumeration>", ex, state));
             }
             return children;
         }
 
-        private static ReplValueNode ErrorNode(string name, Exception ex) => new ReplValueNode
+        private static ReplValueNode ErrorNode(string name, Exception ex, BuildState state) => new ReplValueNode
         {
             Name = name,
             TypeName = "<error>",
             Preview = $"[error: {ex.GetBaseException().Message}]",
-            IsExpandable = false
+            IsExpandable = false,
             // Value + ExpressionPath stay null — error nodes don't
             // have a usable value, and re-asking for the same path
-            // would just re-throw the same exception.
+            // would just re-throw the same exception. RootValue is
+            // still carried so the stale-tree check stays accurate
+            // for the row.
+            RootValue = state.RootValue,
         };
 
         // Render a dictionary key as a C# source-text expression. The
-        // result is spliced into a path like `parent[<key>]`, so we
-        // only accept forms that would *compile* against a typical
-        // REPL context. Anything outside that returns null and the
-        // caller marks the row's ExpressionPath unsafe.
+        // result is spliced into a path like `parent[<key>]` that
+        // both the normal Roslyn compile and the WatchEvaluator
+        // fallback parser need to be able to read — Watch falls back
+        // to the parser when compilation fails, and a path the
+        // fallback can't re-parse silently stops resolving against
+        // the live value. The encoder is therefore narrowed to the
+        // exact subset WatchEvaluator.TryReadIndex accepts:
         //
-        // - Numeric, bool, string, char, enum (single value only).
-        // - Strings: regular literal, backslash + quote escaped;
-        //   control chars reject so embedded \n / \t etc. don't
-        //   silently become wrong source. Unicode glyphs pass
-        //   through.
-        // - Enums: render type as `Namespace.Type.Value`, mapping
-        //   nested-type `+` separators to `.`. Flag combinations
-        //   (`"A, B"`-style) reject.
-        // - Reference types and unknown structs: null.
+        //   - non-negative `int` (digits only — no signs, no
+        //     suffix, no other numeric widths). Long / uint / etc.
+        //     reject so the user doesn't see an Add Watch land on
+        //     `[123L]` that the fallback parser can't read.
+        //   - `string` containing only characters the fallback's
+        //     verbatim-quote-to-quote read won't trip on: no
+        //     control chars, no embedded `"`, no `\`. The fallback
+        //     doesn't interpret escapes, so a path like `["a\"b"]`
+        //     would end at the inner quote and never hit the
+        //     intended bucket.
+        //
+        // Bool / char / enum / negative-int / floats / decimals /
+        // unsigned / long / and strings needing escapes all return
+        // null. The compile path supports more (a Watch row that
+        // compiles cleanly will resolve `_.map[true]`), but Add
+        // Watch only emits paths both code paths can resolve so
+        // users don't see a row light up green only to silently
+        // drift later.
         private static string TryEncodeDictKeyAsCSharp(object key)
         {
             if (key == null) return null;
             switch (key)
             {
-                case bool b:    return b ? "true" : "false";
-                case sbyte i:   return i.ToString(CultureInfo.InvariantCulture);
-                case byte i:    return i.ToString(CultureInfo.InvariantCulture);
-                case short i:   return i.ToString(CultureInfo.InvariantCulture);
-                case ushort i:  return i.ToString(CultureInfo.InvariantCulture);
-                case int i:     return i.ToString(CultureInfo.InvariantCulture);
-                case uint i:    return i.ToString(CultureInfo.InvariantCulture) + "u";
-                case long i:    return i.ToString(CultureInfo.InvariantCulture) + "L";
-                case ulong i:   return i.ToString(CultureInfo.InvariantCulture) + "uL";
-                case float f:   return f.ToString("R", CultureInfo.InvariantCulture) + "f";
-                case double d:  return d.ToString("R", CultureInfo.InvariantCulture);
-                case decimal m: return m.ToString(CultureInfo.InvariantCulture) + "m";
-                case char c:
-                    if (char.IsControl(c)) return null;
-                    if (c == '\'' || c == '\\') return "'\\" + c + "'";
-                    return "'" + c + "'";
+                case int i when i >= 0:
+                    return i.ToString(CultureInfo.InvariantCulture);
                 case string s:
-                    foreach (var ch in s) if (char.IsControl(ch)) return null;
-                    return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-                case Enum e:
-                {
-                    var s = e.ToString();
-                    // Flag combinations land here as comma-separated
-                    // names — that won't compile in `dict[Flags.A,
-                    // B]` form without parens, and even with parens
-                    // the meaning is ambiguous, so reject.
-                    if (s.Contains(",")) return null;
-                    var t = e.GetType();
-                    // CSharpTypeName lives in the Patches layer; we
-                    // can't take a hard dep on it from Core. The
-                    // FullName + `+` → `.` substitution covers the
-                    // realistic cases (top-level + nested enums) and
-                    // matches the rendered form Patches would emit.
-                    var typeExpr = t.FullName?.Replace('+', '.');
-                    if (string.IsNullOrEmpty(typeExpr)) return null;
-                    return typeExpr + "." + s;
-                }
+                    foreach (var ch in s)
+                    {
+                        if (char.IsControl(ch)) return null;
+                        if (ch == '"') return null;
+                        if (ch == '\\') return null;
+                    }
+                    return "\"" + s + "\"";
                 default:
                     return null;
             }
