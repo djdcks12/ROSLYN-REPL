@@ -230,12 +230,20 @@ namespace RoslynRepl.Editor.Core
                     try { v = f.GetValue(obj); }
                     catch (Exception ex) { children.Add(ErrorNode(f.Name, ex, state)); continue; }
 
-                    // Field accessors are always safe to splice into
-                    // an expression — propagate path only when the
-                    // parent had one (parent==null = unsafe lineage,
-                    // e.g. inside a dict bucket whose key wasn't
-                    // expressible).
-                    string childPath = parentPath == null
+                    // Field accessors propagate the parent's path
+                    // only when the field name is itself a path-safe
+                    // C# identifier. Compiler-generated fields on
+                    // anonymous / state-machine / display types
+                    // ("<A>i__Field", "<>1__state", etc.) are
+                    // reflection-visible because IncludeNonPublic
+                    // defaults to true, but their names start with
+                    // `<` so neither the Roslyn compile path nor
+                    // WatchEvaluator.TryReadIdentifier can resolve
+                    // them. Emit them as display rows (the user can
+                    // still read the value) but null out the path
+                    // so Add Watch / Copy Path disable themselves
+                    // rather than write an unparseable expression.
+                    string childPath = (parentPath == null || !IsSafeMemberIdentifier(f.Name))
                         ? null
                         : parentPath + "." + f.Name;
                     children.Add(BuildNode(f.Name, v, depth + 1, state, childPath));
@@ -276,7 +284,11 @@ namespace RoslynRepl.Editor.Core
                     catch (Exception ex)
                     { children.Add(ErrorNode(p.Name, ex, state)); continue; }
 
-                    string childPath = parentPath == null
+                    // Same identifier gating as the field path —
+                    // explicit-impl properties ("X.Y") and any other
+                    // form Reflection can surface but the parser
+                    // can't read get a null child path.
+                    string childPath = (parentPath == null || !IsSafeMemberIdentifier(p.Name))
                         ? null
                         : parentPath + "." + p.Name;
                     children.Add(BuildNode(p.Name, v, depth + 1, state, childPath));
@@ -416,6 +428,28 @@ namespace RoslynRepl.Editor.Core
         // Watch only emits paths both code paths can resolve so
         // users don't see a row light up green only to silently
         // drift later.
+        // True iff `name` is a path-safe member identifier under the
+        // exact same grammar WatchEvaluator.TryReadIdentifier reads:
+        //   first char  ∈ letter ∪ {_}
+        //   later chars ∈ letter ∪ digit ∪ {_}
+        // Compiler-generated names ("<A>i__Field", "<>1__state",
+        // "k__BackingField"), explicit-interface accessors
+        // ("IFoo.Bar"), and anything containing punctuation Reflection
+        // can produce but the parser can't read fall through to false
+        // and the caller marks the row's ExpressionPath unsafe.
+        private static bool IsSafeMemberIdentifier(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            char first = name[0];
+            if (!(char.IsLetter(first) || first == '_')) return false;
+            for (int i = 1; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (!(char.IsLetterOrDigit(c) || c == '_')) return false;
+            }
+            return true;
+        }
+
         private static string TryEncodeDictKeyAsCSharp(object key)
         {
             if (key == null) return null;
