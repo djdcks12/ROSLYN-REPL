@@ -1293,6 +1293,18 @@ return UnityEngine.Application.unityVersion;";
             {
                 AppendOutput($"✓ Validate OK ({result.Duration.TotalMilliseconds:0} ms)", "info");
                 if (_outputSummary != null) _outputSummary.text = "Validate OK";
+                // RenderResult already raised the find-overlay
+                // rebuild signal *before* we appended the OK line,
+                // so without a second RaiseRebuilt here the Ctrl+F
+                // hit list would still reflect the pre-OK state
+                // until the user nudged the query. The CompileError
+                // branch doesn't need this because diagnostics are
+                // appended *inside* RenderResult — they ride that
+                // path's single RaiseRebuilt naturally. Mirror
+                // ScrollOutputToBottom too so the OK line ends up
+                // visible without the user scrolling.
+                ScrollOutputToBottom();
+                _outputFindable?.RaiseRebuilt();
             }
             // Watch is intentionally not refreshed — see method
             // comment.
