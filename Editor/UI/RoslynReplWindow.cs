@@ -1537,6 +1537,23 @@ return UnityEditor.AssetDatabase.FindAssets(""t:{type.Name}"")
             MethodPickerPopup.Open(type, picked =>
             {
                 if (picked == null) return;
+                // Issue #64: flip to Patches mode before populating
+                // the form so the user lands on the surface the
+                // handoff is *for*. Without this the form gets
+                // filled invisibly under the Output tab and the
+                // user has to find their way back to Patches by
+                // hand — a step the Object Browser → Patch Method
+                // path is supposed to remove. SetPatchesModeActive
+                // is a no-op when the pane is already on Patches,
+                // so a user who clicked Patch Method while already
+                // in Patches mode doesn't pay a redundant flip.
+                //
+                // FillFormFromMethod itself runs the Pull Original
+                // path on the just-picked method (added in #60), so
+                // by the time control returns the body editor is
+                // already populated — or the status label carries
+                // the Pull failure message as a non-blocking hint.
+                SetPatchesModeActive(true);
                 _patchView?.FillFormFromMethod(picked);
             });
         }
