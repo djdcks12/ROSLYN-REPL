@@ -277,10 +277,17 @@ return UnityEngine.Application.unityVersion;";
             // counts don't lie about what actually got wiped.
             int compileCacheCount = ReplEngine.CompileCacheCount;
 
+            // Issue #63: session pins live in process memory only,
+            // alongside `_`. Surface the count so the user knows
+            // how much is about to evaporate and the early-return
+            // scope check below doesn't claim "nothing to wipe"
+            // when a pinned object is still bound.
+            int pinCount = PinStore.Count;
+
             if (storeTotal == 0 && !hasCarryOver && dirtyOutputs == 0
                 && patchCount == 0 && !hasStalePatchKey
                 && !hasStaleSnippetFile && !hasStaleHistoryFile && !hasStaleWatchFile
-                && compileCacheCount == 0)
+                && compileCacheCount == 0 && pinCount == 0)
             {
                 EditorUtility.DisplayDialog(
                     "Roslyn REPL — Reset Project Data",
@@ -323,6 +330,9 @@ return UnityEngine.Application.unityVersion;";
             detail.Append(patchCount > 0
                 ? $"  • {patchCount} runtime method patch{(patchCount == 1 ? "" : "es")} (Harmony detours will be reverted)\n"
                 : "  • runtime method patches (none active)\n");
+            detail.Append(pinCount > 0
+                ? $"  • {pinCount} named pin{(pinCount == 1 ? "" : "s")} (in-memory only — session pins live in process state)\n"
+                : "  • named pins (none active)\n");
             detail.Append(compileCacheCount > 0
                 ? $"  • {compileCacheCount} cached compiled watch{(compileCacheCount == 1 ? "" : "es")} (in-memory wrapped source + MethodInfo)\n"
                 : "  • the compiled-watch cache (currently empty)\n");
@@ -358,6 +368,12 @@ return UnityEngine.Application.unityVersion;";
             if (!WatchStore.Clear())              failedFiles.Add("watches.json");
             UsingsStore.Clear();
             ReplEngine.ResetLastResult();
+            // Issue #63: pins are session-only and live alongside
+            // `_` in process memory. Reset Project Data wipes both
+            // — the user already opted into "clear everything in
+            // this project" and a surviving pin would mask a
+            // wrapper-injected static across the next Run.
+            PinStore.Clear();
             // Order: clear the cache *after* WatchStore.Clear so a
             // racing AssemblyLoad mid-reset can't repopulate from a
             // surviving WatchEvaluator timer. WatchStore is the only
@@ -383,7 +399,7 @@ return UnityEngine.Application.unityVersion;";
                 if (w != null) w.ClearOutputAfterReset();
             }
 
-            int reportedTotal = storeTotal + (hasCarryOver ? 1 : 0) + dirtyOutputs + patchCount + compileCacheCount;
+            int reportedTotal = storeTotal + (hasCarryOver ? 1 : 0) + dirtyOutputs + patchCount + compileCacheCount + pinCount;
             if (failedFiles.Count > 0)
             {
                 // Some files survived. Be explicit about which ones
@@ -1027,6 +1043,16 @@ return UnityEngine.Application.unityVersion;";
             evt.menu.AppendAction("Set as `_`",
                 _ => SetOutputNodeAsUnderscore(node),
                 hasValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+            // Issue #63: pin the node's live value under a named
+            // session pin. Uses node.Value directly (not the
+            // expression path), so the action stays correct even
+            // when the path has gone stale relative to `_` — Pin
+            // captures whatever the tree showed, not whatever
+            // `_.path.to.this` happens to resolve to right now.
+            evt.menu.AppendAction("Pin as…",
+                _ => PinOutputNode(node),
+                hasValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
         }
 
         // Walk up from the cell the user clicked, looking for a
@@ -1137,6 +1163,59 @@ return UnityEngine.Application.unityVersion;";
             ReplEngine.SetLastResult(value);
             _watch?.Refresh();
             if (_outputSummary != null) _outputSummary.text = "Bound `_`";
+        }
+
+        // Issue #63: Output tree node → session pin. Suggests a
+        // default name derived from the node's Name when it's
+        // already a valid identifier (`inventory` from an `inventory`
+        // field row), otherwise falls back to the lower-cased type
+        // name. The user always edits the suggestion before pressing
+        // OK, so a slightly off default is fine — it just saves
+        // typing on the common cases.
+        private void PinOutputNode(ReplValueNode node)
+        {
+            if (node?.Value == null) return;
+            var value = node.Value;
+            if (value is UnityEngine.Object uo && uo == null) return;
+
+            string suggested = SuggestPinNameFromNode(node);
+            PromptAndSetPin(value, suggested);
+        }
+
+        private static string SuggestPinNameFromNode(ReplValueNode node)
+        {
+            // Prefer the row's field / property Name when it looks
+            // like a C# identifier — that's the user-meaningful
+            // label for the value. Collection-index names ("[0]"),
+            // the synthetic "(result)" root, and any name with a
+            // leading non-letter character fall back to the type-
+            // derived suggestion.
+            var n = node?.Name;
+            if (!string.IsNullOrEmpty(n)
+                && (char.IsLetter(n[0]) || n[0] == '_')
+                && PinStoreLooksLikeIdentifier(n))
+            {
+                return n;
+            }
+            return SuggestPinName(node?.Value?.GetType());
+        }
+
+        // PinStore.ValidateName is the canonical check (rejects
+        // keywords + wrapper reserves + invalid syntax), but for a
+        // *suggestion* we only need the syntax half — the user is
+        // still going to edit the value before submit, and a
+        // keyword-looking suggestion gives them the chance to fix
+        // it themselves. Cheap inline check rather than exposing
+        // PinStore's private helper.
+        private static bool PinStoreLooksLikeIdentifier(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            for (int i = 1; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (!(char.IsLetterOrDigit(c) || c == '_')) return false;
+            }
+            return true;
         }
 
         public void SetPatchesModeActive(bool active)
@@ -1440,6 +1519,9 @@ return UnityEngine.Application.unityVersion;";
                 case ObjectBrowserView.BrowserRowAction.InsertIntoCode:
                     InsertBrowserInspectSnippetIntoCode(entry);
                     break;
+                case ObjectBrowserView.BrowserRowAction.PinAs:
+                    PinBrowserEntryAs(entry);
+                    break;
             }
         }
 
@@ -1602,6 +1684,59 @@ return UnityEngine.Application.unityVersion;";
                 return;
             }
             InsertSnippetIntoCode(snippet);
+        }
+
+        // Issue #63: prompt for a name and bind the browser row's
+        // live value as a session pin. Reuses the StringPromptDialog
+        // shared with SnippetLibraryWindow + the canonical
+        // PinStore.ValidateName so the dialog and the eventual
+        // storage agree on what counts as a valid identifier.
+        private void PinBrowserEntryAs(InstanceEntry entry)
+        {
+            if (entry == null) return;
+            object value = entry.Value;
+            if (value is UnityEngine.Object uo && uo == null) value = null;
+            if (value == null)
+            {
+                AppendOutput("(can't pin — instance is null or destroyed)", "warning");
+                return;
+            }
+            // Suggest the type's short name as the default since
+            // it's almost always a sensible C# identifier (camelCase
+            // it via lowercase first char so the suggestion reads
+            // like a variable, not a type). The user can edit
+            // anything; the dialog returns null on Cancel.
+            var defaultName = SuggestPinName(value.GetType());
+            PromptAndSetPin(value, defaultName);
+        }
+
+        private void PromptAndSetPin(object value, string defaultName)
+        {
+            var name = Dialogs.StringPromptDialog.Show(
+                "Pin as…",
+                "Enter a C# identifier to bind this value to (session-only):",
+                defaultName);
+            if (string.IsNullOrEmpty(name)) return; // cancelled
+
+            if (!PinStore.TrySet(name.Trim(), value, out var error))
+            {
+                AppendOutput($"(can't pin — {error})", "warning");
+                return;
+            }
+            AppendOutput($"📌 Pinned as `{name.Trim()}` — reference it in Code / Watch as `{name.Trim()}`.", "info");
+        }
+
+        // Convert a type name to a lowerCamelCase pin suggestion.
+        // Falls back to "pin" when the type's name doesn't start
+        // with a letter (rare — anonymous types, compiler-emitted
+        // names) so the dialog still opens with something the user
+        // can confirm by pressing Enter.
+        private static string SuggestPinName(Type type)
+        {
+            if (type == null) return "pin";
+            var n = type.Name;
+            if (string.IsNullOrEmpty(n) || !char.IsLetter(n[0])) return "pin";
+            return char.ToLowerInvariant(n[0]) + (n.Length > 1 ? n.Substring(1) : string.Empty);
         }
 
         // Build a small C# snippet that re-locates the instance.
