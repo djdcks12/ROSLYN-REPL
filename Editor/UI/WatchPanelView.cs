@@ -68,6 +68,18 @@ namespace RoslynRepl.Editor.UI
 
             WatchStore.Changed -= OnStoreChanged;
             WatchStore.Changed += OnStoreChanged;
+            // Issue #63 followup: pins are part of the wrapper
+            // source the evaluator compiles, so adding / renaming /
+            // removing a pin changes what `player.foo` (etc.) means
+            // in every Watch row. Subscribe to PinStore.Changed and
+            // re-run the evaluator on every mutation so a watch
+            // doesn't stay stuck on a compile error after the pin
+            // it depended on appears, or keep showing the previous
+            // pin's value after the pin is dropped. OnStoreChanged
+            // already runs the full refresh path — same handler
+            // covers both signals.
+            PinStore.Changed -= OnStoreChanged;
+            PinStore.Changed += OnStoreChanged;
 
             // Initial population — also ensures the user sees their
             // saved expressions when the window opens, even before
@@ -78,6 +90,7 @@ namespace RoslynRepl.Editor.UI
         public void Dispose()
         {
             WatchStore.Changed -= OnStoreChanged;
+            PinStore.Changed -= OnStoreChanged;
         }
 
         public void Refresh()

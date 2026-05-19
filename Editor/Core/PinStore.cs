@@ -179,14 +179,26 @@ namespace RoslynRepl.Editor.Core
             return true;
         }
 
-        // Tokens the wrapper already injects as static properties.
-        // A pin sharing one of these would compile (the pin's
-        // property would replace the wrapper's) but the original
-        // semantics — `_` = LastResult, `ct` = cancellation token —
-        // are load-bearing; silent masking would cause subtle
-        // breakage in unrelated snippets. Reject up front.
+        // Tokens the wrapper already uses. A pin sharing one of
+        // these would either silently mask load-bearing semantics
+        // (`_` = LastResult, `ct` = cancellation token) or — worse
+        // for the method / class names — produce a wrapper
+        // member-name collision that fails *every* Run / Watch
+        // compile until the user finds and removes that pin.
+        //
+        // The two name constants are pulled off ReplCodeWrapper so
+        // a future rename of either flows through here without a
+        // second-place update. The two property names (`_`, `ct`)
+        // are still spelled out since the wrapper writes them as
+        // bare source, not via constants.
         private static readonly HashSet<string> _reservedWrapperStatics =
-            new HashSet<string>(StringComparer.Ordinal) { "_", "ct" };
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "_",
+                "ct",
+                ReplCodeWrapper.ClassName,
+                ReplCodeWrapper.MethodName,
+            };
 
         // C# 12 keyword set (excluding contextual keywords that are
         // legal as identifiers in non-contextual positions — `var` /
