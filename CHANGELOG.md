@@ -4,7 +4,7 @@ All notable changes to this package will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.8.1] - 2026-05-19
 
 ### Changed (Object Browser → Patch Method handoff)
 - Selecting a method in the `MethodPickerPopup` (the popup the Object Browser's **Patch Method…** action opens) now automatically flips the lower pane into **Patches** mode before filling the form. Previously the form was populated under whichever tab the user was on — usually Output, because the same row's Inspect action put them there a click ago — and the user had to find their way back to Patches by hand to see what just happened. The flip closes the loop so the click on Patch Method, the row pick in the popup, and the populated patch form read as one continuous gesture. Existing Pull-Original-on-fill behaviour (added with the row context menu in #60) is unchanged: by the time the form is visible, the body editor either holds the pulled source or the status label carries a non-blocking Pull-failure hint. Closes #64.

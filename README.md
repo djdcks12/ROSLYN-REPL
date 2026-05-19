@@ -34,7 +34,7 @@ Then add the package by name:
 ```json
 {
   "dependencies": {
-    "com.youngchan.roslyn-repl": "0.8.0"
+    "com.youngchan.roslyn-repl": "0.8.1"
   }
 }
 ```
@@ -50,7 +50,7 @@ https://openupm.com/packages/com.youngchan.roslyn-repl/
 Use the Git URL if you prefer not to add a scoped registry:
 
 ```json
-"com.youngchan.roslyn-repl": "https://github.com/djdcks12/UNITY-ROSLYN-REPL.git#v0.8.0"
+"com.youngchan.roslyn-repl": "https://github.com/djdcks12/UNITY-ROSLYN-REPL.git#v0.8.1"
 ```
 
 ### From Disk
