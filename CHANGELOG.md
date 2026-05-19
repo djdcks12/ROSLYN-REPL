@@ -4,7 +4,7 @@ All notable changes to this package will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.8.0] - 2026-05-19
 
 ### Added (Toolbar `_` carry-over badge)
 - New toolbar pill **`_ : Player (GameObject)`** surfaces the current `_` carry-over target so users can see at a glance whether the engine has a live value bound to `_` (the static the wrapper exposes inside snippets and Watch expressions). The badge appears whenever `ReplEngine.LastResult` is non-null and hides when it's null — Run that returns a non-null value, Object Browser inspect, and explicit `ReplEngine.SetLastResult` all light it up; an explicit Clear or `Reset Project Data` extinguishes it. Closes #59.
