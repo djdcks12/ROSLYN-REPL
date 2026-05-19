@@ -39,6 +39,8 @@ namespace RoslynRepl.Editor.UI
             CopyTypeName,
             /// <summary>Copy a small C# snippet that re-locates the instance to the system clipboard.</summary>
             CopyInspectSnippet,
+            /// <summary>Drop the same inspect snippet directly into the Code editor (no clipboard round-trip).</summary>
+            InsertIntoCode,
         }
 
         // Issue #25: the previous int.MaxValue cap let a single
@@ -333,6 +335,13 @@ namespace RoslynRepl.Editor.UI
             bool canSnippet = snippetType != null && CSharpTypeName.IsRenderable(snippetType);
             evt.menu.AppendAction("Copy Inspect Snippet",
                 _ => OnRowAction?.Invoke(entry, BrowserRowAction.CopyInspectSnippet),
+                canSnippet ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+            // Issue #65: same snippet body the Copy action emits,
+            // but routed straight to the Code editor through
+            // InsertSnippetIntoCode — saves the user a paste step.
+            evt.menu.AppendAction("Insert into Code",
+                _ => OnRowAction?.Invoke(entry, BrowserRowAction.InsertIntoCode),
                 canSnippet ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
         }
 

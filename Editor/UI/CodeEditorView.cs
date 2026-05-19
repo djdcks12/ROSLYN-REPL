@@ -41,6 +41,44 @@ namespace RoslynRepl.Editor.UI
 
         public event Action<string> TextChanged;
 
+        /// <summary>
+        /// Issue #65: append a snippet on a fresh line below the
+        /// existing buffer. Used by the "Insert into Code" actions
+        /// in Output / Object Browser / Watch context menus so the
+        /// user's in-progress draft is preserved by default — the
+        /// host's <c>InsertSnippetIntoCode</c> only escalates to a
+        /// full <see cref="ReplaceCode"/> when the buffer is empty
+        /// or holds the default starter. Trailing newlines on the
+        /// current text are trimmed before the join so the result
+        /// is exactly <c>"&lt;existing&gt;\n&lt;snippet&gt;"</c>
+        /// regardless of whether the user left their draft with a
+        /// trailing newline.
+        /// </summary>
+        public void AppendSnippet(string snippet)
+        {
+            if (string.IsNullOrEmpty(snippet)) return;
+            var current = value ?? string.Empty;
+            if (current.Length == 0)
+            {
+                value = snippet;
+                return;
+            }
+            var trimmed = current.TrimEnd('\n', '\r');
+            value = trimmed + "\n" + snippet;
+        }
+
+        /// <summary>
+        /// Replace the entire buffer with the given snippet. The
+        /// host calls this when the current buffer is empty or
+        /// matches the default starter — the user hasn't typed
+        /// anything they could lose, so the inserted snippet takes
+        /// the whole editor instead of being appended.
+        /// </summary>
+        public void ReplaceCode(string snippet)
+        {
+            value = snippet ?? string.Empty;
+        }
+
         public CodeEditorView()
         {
             AddToClassList("rr-code-editor");

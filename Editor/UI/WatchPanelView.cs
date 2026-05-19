@@ -41,6 +41,19 @@ namespace RoslynRepl.Editor.UI
 
         public event Action ContentRebuilt;
 
+        /// <summary>
+        /// Issue #65: host hook for the row context menu's "Insert
+        /// into Code" action. The panel doesn't know how the Code
+        /// editor decides replace-vs-append against the current
+        /// buffer, so it hands the assembled snippet to the host's
+        /// <c>InsertSnippetIntoCode</c> through this delegate
+        /// instead of importing it directly. Null when the host
+        /// hasn't wired it (e.g. a unit test instantiating the
+        /// view in isolation), in which case the menu entry
+        /// becomes a no-op rather than a NullReferenceException.
+        /// </summary>
+        public Action<string> OnInsertSnippetRequested;
+
         // Highlight state — when an expression's preview differs from its
         // previous snapshot, the row gets a "changed" CSS class for a
         // brief window. We track which rows are currently highlighted so
@@ -234,6 +247,32 @@ namespace RoslynRepl.Editor.UI
             // expression / value / type cells (and any expanded
             // subtree) in one rule without per-cell knowledge.
             if (r.Disabled) block.AddToClassList("rr-watch-row-block--disabled");
+            // Issue #65: row-level context menu for "Insert into
+            // Code". Capture the expression locally so the closure
+            // survives the next RebuildRows recycling WatchResult
+            // instances. Menu fires on right-click anywhere in the
+            // row's footprint (expression / value / type cells all
+            // bubble up to this block).
+            var capturedExprForMenu = r.Expression;
+            block.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                if (string.IsNullOrWhiteSpace(capturedExprForMenu)) return;
+                evt.menu.AppendAction("Insert into Code",
+                    // Route through the same WrapAsReturnStatement
+                    // helper EvaluateOne uses so a watch the user
+                    // typed as `return Foo();` doesn't get inserted
+                    // as the invalid `return return Foo();;`. The
+                    // helper also handles missing trailing
+                    // semicolons identically across the two paths.
+                    _ => OnInsertSnippetRequested?.Invoke(WatchEvaluator.WrapAsReturnStatement(capturedExprForMenu)),
+                    // Disable when the host hasn't wired the hook —
+                    // tests / future contexts where the panel lives
+                    // without a Code editor sibling see a greyed
+                    // entry instead of a silent no-op click.
+                    OnInsertSnippetRequested != null
+                        ? DropdownMenuAction.Status.Normal
+                        : DropdownMenuAction.Status.Disabled);
+            }));
             handle = new RowHandle { Block = block, Result = r };
 
             var row = new VisualElement();
