@@ -203,7 +203,18 @@ return UnityEngine.Application.unityVersion;";
             // "are you sure?" prompts get clicked through without thought.
             int snippetCount = SnippetStore.Load().Count;
             int historyCount = RunHistoryStore.Load().Count;
-            int watchCount   = WatchStore.Load().Count;
+            // Issue #62 followup: `WatchStore.Load()` now returns only
+            // *enabled* watches so the evaluator can iterate "active
+            // expressions" without filtering. Reset counts (and the
+            // stale-file detector below) need the full row count
+            // including disabled rows, otherwise a project with
+            // everything muted would see Reset claim watches.json
+            // is unreadable when it's just full of disabled entries —
+            // and the post-clear "Cleared 0 items" summary would
+            // under-report what actually got wiped. `LoadEntries()`
+            // is the entry-list surface added for #62 and is the
+            // correct denominator here.
+            int watchCount   = WatchStore.LoadEntries().Count;
             int usingsCount  = UsingsStore.LoadCustom().Count;
             int storeTotal = snippetCount + historyCount + watchCount + usingsCount;
 

@@ -123,6 +123,23 @@ namespace RoslynRepl.Editor.UI
             });
             header.Add(fallbackToggle);
 
+            // Issue #62: bulk enable / disable affordances. Useful
+            // when the user wants to mute every watch during an
+            // expensive Run (or re-enable them all after a previous
+            // mass-disable). WatchStore.SetAllEnabled is a no-op
+            // when every row is already at the requested state, so
+            // a repeated click against an already-uniform list
+            // doesn't churn the file or refire Changed.
+            var enableAllBtn = new Button(() => WatchStore.SetAllEnabled(true)) { text = "✓ All" };
+            enableAllBtn.AddToClassList("rr-watch-bulk-btn");
+            enableAllBtn.tooltip = "Enable every Watch row.";
+            header.Add(enableAllBtn);
+
+            var disableAllBtn = new Button(() => WatchStore.SetAllEnabled(false)) { text = "✗ All" };
+            disableAllBtn.AddToClassList("rr-watch-bulk-btn");
+            disableAllBtn.tooltip = "Disable every Watch row — they stay visible but don't evaluate.";
+            header.Add(disableAllBtn);
+
             _addField = new TextField();
             _addField.AddToClassList("rr-watch-add-field");
             // Slim, fits in the header bar.
@@ -212,6 +229,11 @@ namespace RoslynRepl.Editor.UI
         {
             var block = new VisualElement();
             block.AddToClassList("rr-watch-row-block");
+            // Issue #62: muted row treatment for disabled watches.
+            // The block-level class lets the USS layer fade the
+            // expression / value / type cells (and any expanded
+            // subtree) in one rule without per-cell knowledge.
+            if (r.Disabled) block.AddToClassList("rr-watch-row-block--disabled");
             handle = new RowHandle { Block = block, Result = r };
 
             var row = new VisualElement();
@@ -219,7 +241,34 @@ namespace RoslynRepl.Editor.UI
             if (r.Failed) row.AddToClassList("rr-watch-row--failed");
             if (r.JustChanged) row.AddToClassList("rr-watch-row--changed");
 
+            // Enable toggle. Issue #62: a per-row toggle so the user
+            // can silence an expensive / noisy watch without losing
+            // its expression. SetValueWithoutNotify-style flow isn't
+            // needed here — UI Toolkit only fires
+            // ValueChangedCallback when the user clicks, not when
+            // we rebuild the row with the persisted value.
+            var enableToggle = new Toggle();
+            enableToggle.AddToClassList("rr-watch-cell-enable");
+            enableToggle.value = !r.Disabled;
+            enableToggle.tooltip = r.Disabled
+                ? "Disabled — the expression is saved but not evaluated. Click to enable."
+                : "Enabled — the expression evaluates after every Run. Click to disable.";
+            // Capture the expression locally so the closure doesn't
+            // re-read r.Expression after the next RebuildRows
+            // recycles WatchResult instances.
+            var capturedExpr = r.Expression;
+            enableToggle.RegisterValueChangedCallback(evt =>
+            {
+                WatchStore.SetEnabled(capturedExpr, evt.newValue);
+                // Refresh fires implicitly through WatchStore.Changed.
+            });
+            row.Add(enableToggle);
+
             bool canExpand = CanExpand(r);
+            // Disabled rows can't expand — there's no tree to walk
+            // until the user re-enables and the next Run re-evaluates
+            // the expression.
+            if (r.Disabled) canExpand = false;
             bool expanded = canExpand && _expanded.Contains(r.Expression);
             var expandBtn = new Button(() => ToggleExpanded(r.Expression)) { text = canExpand ? (expanded ? "▾" : "▸") : string.Empty };
             expandBtn.AddToClassList("rr-watch-expand-btn");

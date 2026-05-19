@@ -541,6 +541,58 @@
     height: 16px;
 }
 
+/* Issue #62: per-row enable toggle. Sits as the first cell in each
+   row, sized down to keep the existing expr / value / type column
+   widths consistent across the table. UI Toolkit Toggle ships with
+   a label slot we don't use; collapse it to 0 so the checkbox sits
+   flush against the row's left edge instead of leaving a visible
+   gap. */
+.rr-watch-cell-enable {
+    min-width: 18px;
+    width: 18px;
+    margin-left: 2px;
+    margin-right: 2px;
+    flex-shrink: 0;
+}
+
+.rr-watch-cell-enable > .unity-toggle__input {
+    margin: 0;
+}
+
+/* Hide the Toggle's empty label so the checkbox isn't padded by an
+   invisible text slot — without this the row's expr cell starts
+   noticeably right of the other UI columns. */
+.rr-watch-cell-enable > .unity-base-field__label {
+    display: none;
+}
+
+/* Issue #62: header buttons for bulk enable / disable. Compact so
+   they fit alongside the existing Fallback toggle without pushing
+   the add-field off the row on narrow panels. */
+.rr-watch-bulk-btn {
+    height: 16px;
+    min-width: 36px;
+    padding-left: 4px;
+    padding-right: 4px;
+    margin-right: 2px;
+    font-size: 10px;
+}
+
+/* Issue #62: muted styling for the whole disabled row block.
+   Fades the expression / value / type cells together with any
+   secondary "Resolved from" line and the (rare, since the
+   evaluator caps it) expanded sub-tree, so the row still reads
+   as belonging to the same column layout as its enabled siblings
+   but is visibly stepped back. Italic plays double duty as a
+   "this is not the live state" cue. */
+.rr-watch-row-block--disabled .rr-watch-cell-expr,
+.rr-watch-row-block--disabled .rr-watch-cell-value,
+.rr-watch-row-block--disabled .rr-watch-cell-type,
+.rr-watch-row-block--disabled .rr-watch-row-source {
+    color: rgba(180, 180, 180, 0.5);
+    -unity-font-style: italic;
+}
+
 .rr-watch-tree {
     margin-left: 28px;
     margin-right: 6px;

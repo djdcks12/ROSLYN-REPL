@@ -27,6 +27,19 @@ namespace RoslynRepl.Editor.Core
         // rows leave this null because their result is unambiguous —
         // whatever the user's expression returned.
         public string SourceDescription;
+
+        /// <summary>
+        /// Issue #62: true when the row is currently disabled in
+        /// <see cref="WatchStore"/>. The evaluator emits a row with
+        /// this flag set instead of executing the expression, so the
+        /// panel can render a muted row + a toggle in its "off"
+        /// position without losing the user's stored expression.
+        /// Failed / JustChanged / SourceDescription stay at their
+        /// defaults for disabled rows — there's no evaluation to
+        /// flag, no diff to compare, and no fallback source to
+        /// attribute.
+        /// </summary>
+        public bool Disabled;
     }
 
     /// <summary>
@@ -76,7 +89,12 @@ namespace RoslynRepl.Editor.Core
         /// </summary>
         public void RefreshAll()
         {
-            var expressions = WatchStore.Load();
+            // Pull the full entry list (issue #62) so disabled rows
+            // can still render as placeholders without triggering
+            // EvaluateOne — disabling a noisy watch should silence
+            // its side effects on every Run, not just hide the
+            // value cell.
+            var entries = WatchStore.LoadEntries();
             _current.Clear();
 
             // Open one fallback scope for the whole refresh so the
@@ -91,9 +109,27 @@ namespace RoslynRepl.Editor.Core
             _refreshScope = new WatchEvaluationScope();
             try
             {
-                foreach (var expr in expressions)
+                foreach (var entry in entries)
                 {
-                    _current.Add(EvaluateOne(expr));
+                    if (entry == null) continue;
+                    if (string.IsNullOrWhiteSpace(entry.expression)) continue;
+                    if (!entry.enabled)
+                    {
+                        // Disabled placeholder — keeps the row in the
+                        // panel's enumeration order, surfaces a
+                        // recognisable "(disabled)" preview, and
+                        // leaves Failed false so the row doesn't
+                        // pick up the error-styling treatment.
+                        _current.Add(new WatchResult
+                        {
+                            Expression = entry.expression,
+                            Preview = "(disabled)",
+                            TypeName = string.Empty,
+                            Disabled = true,
+                        });
+                        continue;
+                    }
+                    _current.Add(EvaluateOne(entry.expression));
                 }
             }
             finally
@@ -104,8 +140,19 @@ namespace RoslynRepl.Editor.Core
 
             // Drop snapshot entries for expressions the user removed so
             // re-adding the same expression later doesn't replay an old
-            // "changed" highlight against a stale preview.
-            var stillPresent = new HashSet<string>(expressions);
+            // "changed" highlight against a stale preview. The set
+            // covers every entry the store currently knows about,
+            // disabled or not — disabling a row shouldn't lose its
+            // previous-preview snapshot, since the user may re-enable
+            // it on the next click and expect the same change-flash
+            // semantics.
+            var stillPresent = new HashSet<string>();
+            foreach (var entry in entries)
+            {
+                if (entry == null) continue;
+                if (string.IsNullOrWhiteSpace(entry.expression)) continue;
+                stillPresent.Add(entry.expression);
+            }
             var keys = new List<string>(_previousPreviews.Keys);
             foreach (var k in keys)
                 if (!stillPresent.Contains(k)) _previousPreviews.Remove(k);
