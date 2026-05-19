@@ -577,6 +577,12 @@ return UnityEngine.Application.unityVersion;";
             if (watchHost != null)
             {
                 _watch = new WatchPanelView(watchHost);
+                // Issue #65: route the Watch row context-menu's
+                // "Insert into Code" action through the host so
+                // it shares the same replace-vs-append policy
+                // (and the toast confirmation) every other
+                // InsertSnippetIntoCode caller gets.
+                _watch.OnInsertSnippetRequested = InsertSnippetIntoCode;
             }
 
             // Ctrl+F find overlay. The output findable lives for the
@@ -899,6 +905,52 @@ return UnityEngine.Application.unityVersion;";
         // the future) updates in lockstep.
         private void ClearUnderscore() => ReplEngine.ResetLastResult();
 
+        // Issue #65: shared entry point for every "Insert into Code"
+        // action across Output tree, Object Browser, and Watch row
+        // context menus. Replaces the buffer when it's empty or
+        // holds the default starter (the user has nothing they could
+        // lose), otherwise appends the snippet on a fresh line so an
+        // in-progress draft survives. Nothing runs automatically —
+        // Run / Validate stay user-driven so an inserted snippet
+        // gets at least one glance before it executes.
+        //
+        // The inline Output confirmation is the same shape Copy
+        // Path / Copy Type Name use elsewhere; non-blocking and
+        // shows what landed without forcing the user to scroll the
+        // Code editor by hand.
+        private void InsertSnippetIntoCode(string snippet)
+        {
+            if (_codeEditor == null) return;
+            if (string.IsNullOrEmpty(snippet)) return;
+            var current = _codeEditor.value ?? string.Empty;
+            bool isEmpty = string.IsNullOrWhiteSpace(current);
+            // TrimEnd both sides so trailing-newline drift between
+            // the literal DefaultCode constant and a buffer reloaded
+            // from session state doesn't false-negative the default
+            // detection.
+            bool isDefault = current.TrimEnd() == DefaultCode.TrimEnd();
+            if (isEmpty || isDefault)
+            {
+                _codeEditor.ReplaceCode(snippet);
+            }
+            else
+            {
+                _codeEditor.AppendSnippet(snippet);
+            }
+            AppendOutput($"📝 Inserted into Code: {SummariseSnippetForOutput(snippet)}", "info");
+        }
+
+        // Single-line preview for the "Inserted into Code" toast.
+        // Newlines collapse to spaces and the result is capped at 60
+        // chars so a multi-line ScriptableObject template doesn't
+        // wrap the Output panel into a paragraph for one info line.
+        private static string SummariseSnippetForOutput(string snippet)
+        {
+            if (string.IsNullOrEmpty(snippet)) return string.Empty;
+            var single = snippet.Replace('\n', ' ').Replace('\r', ' ');
+            return single.Length <= 60 ? single : single.Substring(0, 59) + "…";
+        }
+
         // Issue #61: build the right-click menu for an Output tree
         // row. Walks up the click target to find the bound
         // ReplValueNode (stashed on each cell's userData by MakeColumn's
@@ -939,6 +991,15 @@ return UnityEngine.Application.unityVersion;";
 
             evt.menu.AppendAction("Copy Path" + staleSuffix,
                 _ => CopyOutputNodePath(node),
+                copyPathEnabled ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+            // Issue #65: drop a `return <path>;` snippet into the
+            // Code editor. Same stale-anchor gate as Copy Path /
+            // Add Watch — a path inserted now should still resolve
+            // against the tree's original root when the user
+            // presses Run.
+            evt.menu.AppendAction("Insert into Code" + staleSuffix,
+                _ => InsertOutputNodeIntoCode(node),
                 copyPathEnabled ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
 
             evt.menu.AppendAction("Copy Value",
@@ -1015,6 +1076,23 @@ return UnityEngine.Application.unityVersion;";
             }
             EditorGUIUtility.systemCopyBuffer = path;
             AppendOutput($"📋 Copied path: {path}", "info");
+        }
+
+        // Issue #65: wrap the node's expression path in `return ...;`
+        // and hand it to InsertSnippetIntoCode. The host helper
+        // decides replace-vs-append based on the current buffer
+        // state, so the action is safe even when the user has an
+        // unrelated draft already in the editor.
+        private void InsertOutputNodeIntoCode(ReplValueNode node)
+        {
+            if (node == null) return;
+            var path = node.ExpressionPath;
+            if (string.IsNullOrEmpty(path))
+            {
+                AppendOutput("(can't insert — node has no safe expression path)", "warning");
+                return;
+            }
+            InsertSnippetIntoCode($"return {path};");
         }
 
         private void CopyOutputNodeValue(ReplValueNode node)
@@ -1359,6 +1437,9 @@ return UnityEngine.Application.unityVersion;";
                 case ObjectBrowserView.BrowserRowAction.CopyInspectSnippet:
                     CopyBrowserInspectSnippet(entry);
                     break;
+                case ObjectBrowserView.BrowserRowAction.InsertIntoCode:
+                    InsertBrowserInspectSnippetIntoCode(entry);
+                    break;
             }
         }
 
@@ -1504,6 +1585,23 @@ return UnityEngine.Application.unityVersion;";
             }
             EditorGUIUtility.systemCopyBuffer = snippet;
             AppendOutput("📋 Copied inspect snippet — paste into Code or a Watch row.", "info");
+        }
+
+        // Issue #65: same snippet the Copy action emits, but skips
+        // the clipboard and pipes straight into the Code editor via
+        // InsertSnippetIntoCode. Build failure (no Type / not
+        // renderable) gets the same warning the Copy path uses so
+        // the failure mode is identical between the two actions.
+        private void InsertBrowserInspectSnippetIntoCode(InstanceEntry entry)
+        {
+            if (entry == null) return;
+            var snippet = BuildBrowserInspectSnippet(entry);
+            if (string.IsNullOrEmpty(snippet))
+            {
+                AppendOutput("(can't build snippet — no type information available)", "warning");
+                return;
+            }
+            InsertSnippetIntoCode(snippet);
         }
 
         // Build a small C# snippet that re-locates the instance.
