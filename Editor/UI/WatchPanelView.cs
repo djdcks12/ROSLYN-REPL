@@ -258,7 +258,13 @@ namespace RoslynRepl.Editor.UI
             {
                 if (string.IsNullOrWhiteSpace(capturedExprForMenu)) return;
                 evt.menu.AppendAction("Insert into Code",
-                    _ => OnInsertSnippetRequested?.Invoke($"return {capturedExprForMenu};"),
+                    // Route through the same WrapAsReturnStatement
+                    // helper EvaluateOne uses so a watch the user
+                    // typed as `return Foo();` doesn't get inserted
+                    // as the invalid `return return Foo();;`. The
+                    // helper also handles missing trailing
+                    // semicolons identically across the two paths.
+                    _ => OnInsertSnippetRequested?.Invoke(WatchEvaluator.WrapAsReturnStatement(capturedExprForMenu)),
                     // Disable when the host hasn't wired the hook —
                     // tests / future contexts where the panel lives
                     // without a Code editor sibling see a greyed

@@ -160,6 +160,34 @@ namespace RoslynRepl.Editor.Core
             Changed?.Invoke();
         }
 
+        /// <summary>
+        /// Wrap a watch expression as a complete statement the
+        /// Roslyn wrapper can run. Used by both <see cref="EvaluateOne"/>
+        /// (where the result is the actual snippet handed to the
+        /// engine) and the Watch row's "Insert into Code" action
+        /// in <c>WatchPanelView</c> (#65), so the two paths can't
+        /// disagree on what a stored watch text turns into.
+        ///
+        /// Rule mirrors <see cref="EvaluateOne"/>'s historic
+        /// behaviour: if the trimmed expression already starts with
+        /// <c>"return "</c> or <c>"return\t"</c>, the user has
+        /// taken explicit control of the statement and we leave the
+        /// text alone — only the trailing semicolon is added if
+        /// missing. Otherwise the expression is wrapped as
+        /// <c>"return &lt;expr&gt;;"</c>. Without this dispatch a
+        /// watch typed as <c>"return Foo();"</c> would get inserted
+        /// into the Code editor as the syntactically invalid
+        /// <c>"return return Foo();;"</c>.
+        /// </summary>
+        public static string WrapAsReturnStatement(string expression)
+        {
+            var trimmed = expression?.Trim() ?? string.Empty;
+            if (trimmed.Length == 0) return string.Empty;
+            if (trimmed.StartsWith("return ", StringComparison.Ordinal) || trimmed.StartsWith("return\t", StringComparison.Ordinal))
+                return trimmed.EndsWith(";", StringComparison.Ordinal) ? trimmed : trimmed + ";";
+            return "return " + trimmed + (trimmed.EndsWith(";", StringComparison.Ordinal) ? "" : ";");
+        }
+
         public WatchResult EvaluateOne(string expression)
         {
             var result = new WatchResult { Expression = expression };
@@ -169,12 +197,12 @@ namespace RoslynRepl.Editor.Core
             // `return …;` themselves. If the user's input already starts
             // with `return`, leave it alone — they probably want full
             // control (e.g. multi-line code that ends in `return`).
-            string snippet;
+            // Trim once and keep the trimmed form around for the
+            // fallback-path branches below — both branches re-pass
+            // the trimmed text into TryEvaluateFallbackPath so the
+            // resolver isn't confused by leading whitespace.
             var trimmed = expression?.Trim() ?? string.Empty;
-            if (trimmed.StartsWith("return ", StringComparison.Ordinal) || trimmed.StartsWith("return\t", StringComparison.Ordinal))
-                snippet = trimmed.EndsWith(";", StringComparison.Ordinal) ? trimmed : trimmed + ";";
-            else
-                snippet = "return " + trimmed + (trimmed.EndsWith(";", StringComparison.Ordinal) ? "" : ";");
+            string snippet = WrapAsReturnStatement(trimmed);
 
             ReplResult r;
             try
