@@ -420,14 +420,14 @@ return UnityEngine.Application.unityVersion;";
                     "  • " + string.Join("\n  • ", failedFiles) + "\n\n" +
                     $"Folder: {pathHint}\n\n" +
                     "These payloads will reload the next time the matching panel reads them. Close any external editor holding the file open (often the cause), then re-run Reset Project Data — or delete the listed files manually.\n\n" +
-                    "Other reset targets (`_` carry-over, Output panels, Harmony detours, the compiled-watch cache) succeeded.",
+                    "Other reset targets (`_` carry-over, named pins, Output panels, Harmony detours, the compiled-watch cache) succeeded.",
                     "OK");
             }
             else
             {
                 EditorUtility.DisplayDialog(
                     "Roslyn REPL — Reset Project Data",
-                    $"Cleared {reportedTotal} item{(reportedTotal == 1 ? "" : "s")} across snippet library, run history, watches, custom usings, the `_` carry-over, visible Output panels, runtime method patches, and the compiled-watch cache.",
+                    $"Cleared {reportedTotal} item{(reportedTotal == 1 ? "" : "s")} across snippet library, run history, watches, custom usings, the `_` carry-over, named pins, visible Output panels, runtime method patches, and the compiled-watch cache.",
                     "OK");
             }
         }
