@@ -19,6 +19,14 @@
     color: rgb(120, 220, 120);
 }
 
+/* Issue #66: dry-compile button sits next to Run. Muted blue
+   distinguishes it from the green Run colour — same toolbar
+   placement, intentionally different palette so the user doesn't
+   misread it as "Run". */
+.rr-validate-btn {
+    color: rgb(140, 190, 230);
+}
+
 .rr-title {
     -unity-font-style: bold;
     color: rgb(220, 220, 220);

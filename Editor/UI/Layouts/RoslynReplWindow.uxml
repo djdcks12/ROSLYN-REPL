@@ -2,6 +2,7 @@
     <ui:VisualElement class="rr-root">
         <uie:Toolbar class="rr-toolbar">
             <uie:ToolbarButton name="run-btn" text="▶ Run" class="rr-run-btn" />
+            <uie:ToolbarButton name="validate-btn" text="✓ Validate" class="rr-validate-btn" />
             <uie:ToolbarButton name="clear-btn" text="Clear" />
             <ui:Label text="Roslyn REPL" class="rr-title" />
             <ui:VisualElement style="flex-grow: 1;" />

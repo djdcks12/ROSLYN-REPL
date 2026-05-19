@@ -635,6 +635,21 @@ return UnityEngine.Application.unityVersion;";
             var runWarning = root.Q<Label>("run-warning-label");
             if (runWarning != null) runWarning.tooltip = CoopWarningTooltip;
 
+            // Issue #66: Validate button — compile-only, no Invoke,
+            // no `_` mutation, no log capture. The Ctrl+Shift+Enter
+            // shortcut in OnKeyDown drives the same Validate() entry
+            // point so the toolbar click and the keyboard path
+            // produce identical results.
+            var validateBtn = root.Q<Button>("validate-btn");
+            if (validateBtn != null)
+            {
+                validateBtn.clicked += Validate;
+                validateBtn.tooltip =
+                    "Compile the snippet without running it (Ctrl+Shift+Enter).\n" +
+                    "Diagnostics flow into Output and the gutter; the assembly is\n" +
+                    "never loaded, `_` is unchanged, and runtime logs aren't captured.";
+            }
+
             var clearBtn = root.Q<Button>("clear-btn");
             if (clearBtn != null) clearBtn.clicked += ClearOutput;
 
@@ -1083,7 +1098,21 @@ return UnityEngine.Application.unityVersion;";
         private void OnKeyDown(KeyDownEvent evt)
         {
             bool isF5         = evt.keyCode == KeyCode.F5;
-            bool isCtrlReturn = evt.ctrlKey && (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter);
+            bool isReturn     = evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter;
+            // Issue #66: Ctrl+Shift+Enter (or Cmd+Shift+Enter) triggers
+            // Validate — a dry compile that surfaces diagnostics but
+            // never invokes the wrapper method. Match the same
+            // modifier surface Run uses (Ctrl/Cmd interchangeable)
+            // and check shift *before* the plain Ctrl+Enter branch so
+            // the modifier combination wins.
+            bool isCtrlShiftReturn = (evt.ctrlKey || evt.commandKey) && evt.shiftKey && isReturn;
+            if (isCtrlShiftReturn)
+            {
+                Validate();
+                evt.StopPropagation();
+                return;
+            }
+            bool isCtrlReturn = evt.ctrlKey && isReturn;
             if (isF5 || isCtrlReturn)
             {
                 Run();
@@ -1216,6 +1245,57 @@ return UnityEngine.Application.unityVersion;";
             // snippet produced (e.g. mutating a manager state
             // visible to a watch).
             _watch?.Refresh();
+        }
+
+        // Issue #66: dry-compile entry point. Mirrors Run's pre-flow
+        // (pull code, build options off the same Usings list, clear
+        // output, leading info breadcrumb) so the user reads the
+        // surface as a sibling of Run rather than a separate
+        // pipeline. Then routes to ReplEngine.Validate instead of
+        // Execute / ExecuteOnPlayerFrame:
+        //   - no Invoke → no runtime exceptions / cancellation
+        //     considerations / cooperative-cancel dialog (Validate
+        //     can't freeze the Editor, so we skip the first-run
+        //     warning gate entirely).
+        //   - no log capture → result.Logs is always empty; the
+        //     `(N logs)` and stack-trace render branches in
+        //     RenderResult exit early on an empty list.
+        //   - no LastResult mutation → `_` and the toolbar badge
+        //     stay put.
+        //   - no Watch.Refresh → there's no state change to
+        //     re-evaluate against. A user who wants Watch to
+        //     re-evaluate runs the snippet for real.
+        // RenderResult is reused to surface diagnostics / gutter
+        // markers (CompileError branch) or to render the "OK"
+        // success message (Success branch with no return value,
+        // which the result.HasReturnValue gate already collapses
+        // to a one-liner).
+        private void Validate()
+        {
+            if (_codeEditor == null || _outputContent == null) return;
+
+            var code = _codeEditor.value ?? string.Empty;
+            ClearOutput();
+            AppendOutput($"✓ Validating ({code.Length} chars)…", "info");
+
+            var options = new ReplOptions { Usings = UsingsStore.EffectiveUsings() };
+            var result = ReplEngine.Validate(code, options);
+
+            RenderResult(result);
+            // On a clean compile RenderResult's Success branch
+            // emits an empty "=> " (HasReturnValue == false on a
+            // null Value), which reads as silence. Drop a clear
+            // confirmation line so the user knows Validate
+            // actually ran and passed, and surface the compile
+            // duration so a slow compile is visible without
+            // having to dig into the gutter.
+            if (result.Kind == ReplResultKind.Success)
+            {
+                AppendOutput($"✓ Validate OK ({result.Duration.TotalMilliseconds:0} ms)", "info");
+                if (_outputSummary != null) _outputSummary.text = "Validate OK";
+            }
+            // Watch is intentionally not refreshed — see method
+            // comment.
         }
 
         // Double-click on a browser row routes through different paths

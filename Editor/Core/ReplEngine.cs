@@ -132,6 +132,95 @@ namespace RoslynRepl.Editor.Core
         /// </summary>
         public static CancellationToken CurrentCancellation { get; private set; } = CancellationToken.None;
 
+        /// <summary>
+        /// Issue #66: compile-only path. Wraps and compiles
+        /// <paramref name="userCode"/> the same way <see cref="Execute"/>
+        /// does (same <see cref="ReplCodeWrapper"/>, same Roslyn
+        /// references, same diagnostic line remapping) but never
+        /// loads the resulting assembly into the AppDomain and never
+        /// invokes the generated method. Side effects skipped:
+        /// <list type="bullet">
+        /// <item>no log capture — captures none, runtime <c>Debug.Log</c>
+        ///       never fires anyway.</item>
+        /// <item>no <see cref="LastResult"/> mutation — the carry-over
+        ///       <c>_</c> is unchanged.</item>
+        /// <item>no dynamic-assembly count bump — emit-to-MemoryStream
+        ///       produces IL bytes but skips <c>Assembly.Load</c>,
+        ///       so the toolbar's asm-badge counter stays put.</item>
+        /// <item>no compile cache write — a future Run / Validate of
+        ///       the exact same source still re-compiles, which is
+        ///       intentional: caching off the Validate path would
+        ///       blur the "this is a dry check" contract.</item>
+        /// </list>
+        /// Returns a <see cref="ReplResult"/> with
+        /// <see cref="ReplResultKind.Success"/> on a clean compile
+        /// (Value / Display both null — nothing was actually
+        /// computed) or <see cref="ReplResultKind.CompileError"/>
+        /// with diagnostics. Run behaviour is untouched — the new
+        /// surface sits next to <see cref="Execute"/>, not in front
+        /// of it.
+        /// </summary>
+        public static ReplResult Validate(string userCode, ReplOptions options = null)
+        {
+            options ??= new ReplOptions();
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var wrapped = ReplCodeWrapper.Wrap(userCode, options.Usings);
+                var tree = CSharpSyntaxTree.ParseText(wrapped.Source);
+                var compilation = CSharpCompilation.Create(
+                    // ReplValidate_* prefix (vs ReplDynamic_* for
+                    // Execute) so a developer eyeballing the asm
+                    // badge / Console output can tell which path
+                    // produced a given trace. The assembly never
+                    // loads, but the *compilation*'s name does
+                    // surface in diagnostic messages.
+                    assemblyName: "ReplValidate_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    syntaxTrees: new[] { tree },
+                    references: AssemblyReferenceCache.GetReferences(),
+                    options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                );
+
+                // Emit to a throwaway stream — we want the same
+                // emit-time diagnostics Execute would catch (the
+                // syntax-only GetDiagnostics path misses a few
+                // emit-only errors like unsafe-IL violations), but
+                // the stream's content is discarded and never
+                // loaded into the AppDomain.
+                using var ms = new MemoryStream();
+                var emit = compilation.Emit(ms);
+                if (!emit.Success)
+                {
+                    var diagnostics = emit.Diagnostics
+                        .Where(d => d.Severity == DiagnosticSeverity.Error)
+                        .Select(d => ToDiagnosticInfo(d, wrapped.UserCodeLineOffset))
+                        .ToList();
+                    return ReplResult.CompileError(diagnostics, new List<LogEntry>(), sw.Elapsed);
+                }
+                return ReplResult.Success(value: null, valueDisplay: null, logs: new List<LogEntry>(), duration: sw.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                // Surface internal compile-pipeline failures (missing
+                // reference assemblies, wrapper-generation bug, etc.)
+                // as a single non-user-code diagnostic. The UI maps
+                // IsInUserCode=false away from gutter markers, so the
+                // editor doesn't flag a user line for an internal
+                // failure.
+                return ReplResult.CompileError(
+                    new List<DiagnosticInfo> {
+                        new DiagnosticInfo {
+                            Code = "INTERNAL",
+                            Message = ex.GetBaseException().Message,
+                            Line = 0,
+                            Column = 0,
+                            IsInUserCode = false,
+                        }
+                    },
+                    new List<LogEntry>(), sw.Elapsed);
+            }
+        }
+
         public static ReplResult Execute(string userCode, ReplOptions options = null)
         {
             options ??= new ReplOptions();
