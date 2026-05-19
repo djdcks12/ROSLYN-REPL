@@ -306,70 +306,10 @@ namespace RoslynRepl.Editor.UI
         }
 
         // Built-in EditorUtility doesn't ship a string-prompt dialog —
-        // re-implement the minimum we need with a tiny modal IMGUI window.
+        // shared helper lives in RoslynRepl.Editor.UI.Dialogs.
         private static string PromptForString(string title, string label, string defaultValue)
         {
-            return SimpleStringPrompt.Show(title, label, defaultValue);
-        }
-
-        private class SimpleStringPrompt : EditorWindow
-        {
-            private string _label;
-            private string _value;
-            private bool _confirmed;
-            private bool _shouldClose;
-
-            public static string Show(string title, string label, string defaultValue)
-            {
-                var w = CreateInstance<SimpleStringPrompt>();
-                w.titleContent = new GUIContent(title);
-                w._label = label;
-                w._value = defaultValue ?? string.Empty;
-                w.minSize = new Vector2(320, 90);
-                w.maxSize = new Vector2(560, 90);
-                w.ShowModal(); // blocks until window closes
-                return w._confirmed ? w._value : null;
-            }
-
-            private void OnGUI()
-            {
-                GUILayout.Space(6);
-                EditorGUILayout.LabelField(_label);
-                GUI.SetNextControlName("input");
-                _value = EditorGUILayout.TextField(_value);
-                EditorGUI.FocusTextInControl("input");
-                GUILayout.FlexibleSpace();
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("Cancel", GUILayout.Width(80)))
-                    {
-                        _confirmed = false;
-                        _shouldClose = true;
-                    }
-                    if (GUILayout.Button("OK", GUILayout.Width(80)))
-                    {
-                        _confirmed = true;
-                        _shouldClose = true;
-                    }
-                }
-                if (Event.current.type == EventType.KeyDown)
-                {
-                    if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
-                    {
-                        _confirmed = true;
-                        _shouldClose = true;
-                        Event.current.Use();
-                    }
-                    else if (Event.current.keyCode == KeyCode.Escape)
-                    {
-                        _confirmed = false;
-                        _shouldClose = true;
-                        Event.current.Use();
-                    }
-                }
-                if (_shouldClose) Close();
-            }
+            return RoslynRepl.Editor.UI.Dialogs.StringPromptDialog.Show(title, label, defaultValue);
         }
     }
 }

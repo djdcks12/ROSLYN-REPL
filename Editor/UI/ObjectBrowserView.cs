@@ -41,6 +41,8 @@ namespace RoslynRepl.Editor.UI
             CopyInspectSnippet,
             /// <summary>Drop the same inspect snippet directly into the Code editor (no clipboard round-trip).</summary>
             InsertIntoCode,
+            /// <summary>Bind the value to a session-only named pin so snippets / watches can reference it by name.</summary>
+            PinAs,
         }
 
         // Issue #25: the previous int.MaxValue cap let a single
@@ -307,6 +309,14 @@ namespace RoslynRepl.Editor.UI
 
             evt.menu.AppendAction("Set as `_`",
                 _ => OnRowAction?.Invoke(entry, BrowserRowAction.SetAsUnderscore),
+                hasLiveValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+            // Issue #63: bind the live value to a named pin so
+            // snippets can reference it by name (`player.transform`,
+            // etc.). Same liveness gate as Set as `_` — no point
+            // pinning a destroyed UnityEngine.Object.
+            evt.menu.AppendAction("Pin as…",
+                _ => OnRowAction?.Invoke(entry, BrowserRowAction.PinAs),
                 hasLiveValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
 
             evt.menu.AppendAction("Patch Method…",

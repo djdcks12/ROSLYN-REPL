@@ -501,6 +501,18 @@ namespace RoslynRepl.Editor.Core
             if (_assemblyLoadHooked) return;
             _assemblyLoadHooked = true;
             AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoaded;
+            // Issue #63: pin set is part of the wrapper source —
+            // adding / removing / renaming a pin changes the C#
+            // wrapper layout but the user's snippet text stays the
+            // same, so the compile cache's source-string key would
+            // hand back a stale MethodInfo that still references
+            // the pre-edit pin set. Wipe on every pin mutation so
+            // the next Run / Watch refresh emits a fresh wrapper.
+            // Hooked once-per-domain alongside the assembly-load
+            // hook so the subscription survives the same way that
+            // one does.
+            PinStore.Changed -= InvalidateCompileCache;
+            PinStore.Changed += InvalidateCompileCache;
         }
 
         private static void OnAssemblyLoaded(object sender, AssemblyLoadEventArgs args)

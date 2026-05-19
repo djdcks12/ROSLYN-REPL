@@ -70,6 +70,28 @@ namespace RoslynRepl.Editor.Core
             // `ct` still hang the Editor — there's no hard kill on the
             // main thread (Thread.Abort is unavailable on Mono / .NET 6+).
             sb.Append("    public static System.Threading.CancellationToken ct => RoslynRepl.Editor.Core.ReplEngine.CurrentCancellation;\n"); line++;
+
+            // Issue #63: named pins. Each currently-stored pin
+            // emits as a `dynamic` static property pulling through
+            // to PinStore.Get(name), so user snippets can reference
+            // a pinned name unqualified — same shape as `_` above.
+            // Pin names are validated up front by
+            // PinStore.ValidateName (C# identifier rules + keyword /
+            // wrapper-reserved rejection), so splicing the raw name
+            // into source here is safe — there's no quoting needed
+            // and the name can't collide with `_` / `ct` / a
+            // keyword. PinStore.Changed invalidates ReplEngine's
+            // compile cache (subscribed once from the engine itself)
+            // so editing a pin doesn't leave a cached pre-edit
+            // wrapper around.
+            foreach (var pinName in PinStore.Names)
+            {
+                if (string.IsNullOrEmpty(pinName)) continue;
+                sb.Append("    public static dynamic ").Append(pinName)
+                  .Append(" => RoslynRepl.Editor.Core.PinStore.Get(\"").Append(pinName).Append("\");\n");
+                line++;
+            }
+
             sb.Append("    public static object ").Append(MethodName).Append("()\n");  line++;
             sb.Append("    {\n");                              line++;
 
